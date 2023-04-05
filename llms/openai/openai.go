@@ -50,7 +50,6 @@ type OpenAI struct {
 
 type authorizeTransport struct {
 	apiKey string
-	base   http.RoundTripper
 }
 
 func (t *authorizeTransport) RoundTrip(req *http.Request) (*http.Response, error) {
