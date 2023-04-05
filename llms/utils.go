@@ -1,11 +1,11 @@
 package llms
 
-func BatchSlice[T any](slice []T, batchSize int) [][]T {
+func BatchSlice[T any](slice []T, batchSize int64) [][]T {
 	var chunks [][]T
-	for i := 0; i < len(slice); i += batchSize {
+	for i := int64(0); i < int64(len(slice)); i += batchSize {
 		end := i + batchSize
-		if end > len(slice) {
-			end = len(slice)
+		if end > int64(len(slice)) {
+			end = int64(len(slice))
 		}
 
 		chunks = append(chunks, slice[i:end])
@@ -15,6 +15,6 @@ func BatchSlice[T any](slice []T, batchSize int) [][]T {
 }
 
 // TODO: Implement Max Token Inference
-func CalculateMaxTokens(prompt string, modelName string) int {
+func CalculateMaxTokens(prompt string, modelName string) int64 {
 	return 1
 }

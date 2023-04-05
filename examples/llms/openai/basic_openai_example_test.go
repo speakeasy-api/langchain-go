@@ -3,7 +3,7 @@ package openai
 import (
 	"context"
 	"fmt"
-	openai "github.com/speakeasy-api/langchain-go/llms/openapi"
+	openai "github.com/speakeasy-api/langchain-go/llms/openai"
 	"log"
 	"testing"
 )
