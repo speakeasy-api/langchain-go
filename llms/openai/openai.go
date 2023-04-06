@@ -5,12 +5,12 @@ import (
 	"errors"
 	"fmt"
 	gpt "github.com/speakeasy-sdks/openai-go-sdk"
-	"github.com/speakeasy-sdks/openai-go-sdk/pkg/models/operations"
 	"github.com/speakeasy-sdks/openai-go-sdk/pkg/models/shared"
 	"math"
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/speakeasy-api/langchain-go/llms"
@@ -49,12 +49,12 @@ type OpenAI struct {
 	client           *gpt.Gpt
 }
 
-type authorizeTransport struct {
-	apiKey string
+type AuthorizeTransport struct {
+	ApiKey string
 }
 
-func (t *authorizeTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", t.apiKey))
+func (t *AuthorizeTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", t.ApiKey))
 	return http.DefaultTransport.RoundTrip(req)
 }
 
@@ -96,6 +96,14 @@ func New(args ...OpenAIInput) (*OpenAI, error) {
 		return nil, errors.New("OpenAI API key not found")
 	}
 
+	if input.ModelName != nil {
+		openai.modelName = *input.ModelName
+	}
+
+	if strings.HasPrefix(openai.modelName, "gpt-3.5-turbo") || strings.HasPrefix(openai.modelName, "gpt-4") {
+		return nil, errors.New("use OpenAIChat for these models")
+	}
+
 	if input.Temperature != nil {
 		openai.temperature = *input.Temperature
 	}
@@ -124,10 +132,6 @@ func New(args ...OpenAIInput) (*OpenAI, error) {
 		openai.bestOf = *input.BestOf
 	}
 
-	if input.ModelName != nil {
-		openai.modelName = *input.ModelName
-	}
-
 	if input.BatchSize != nil {
 		openai.batchSize = *input.BatchSize
 	}
@@ -136,7 +140,7 @@ func New(args ...OpenAIInput) (*OpenAI, error) {
 		openai.maxRetries = *input.MaxRetries
 	}
 
-	httpClient := http.Client{Transport: &authorizeTransport{apiKey: apiKey}}
+	httpClient := http.Client{Transport: &AuthorizeTransport{ApiKey: apiKey}}
 
 	if openai.timeout != nil {
 		httpClient.Timeout = *openai.timeout
@@ -264,7 +268,7 @@ func (openai *OpenAI) completionWithRetry(ctx context.Context, prompts []string,
 			finalResult = res.CreateCompletionResponse
 			break
 		} else {
-			if lastTry || !statusCodeIsRetryable(res.StatusCode) {
+			if lastTry || !StatusCodeIsRetryable(res.StatusCode) {
 				// TODO: Improve Error Parsing
 				finalErr = errors.New(fmt.Sprintf("error in call to openai with status %s", res.RawResponse.Status))
 				break
@@ -277,26 +281,6 @@ func (openai *OpenAI) completionWithRetry(ctx context.Context, prompts []string,
 	return finalResult, finalErr
 }
 
-func (openai *OpenAI) completionRequest(ctx context.Context, prompts []string, maxTokens int64, stop []string) (*operations.CreateCompletionResponse, error) {
-	stopRequest := shared.CreateCreateCompletionRequestStopArrayOfstr(stop)
-	promptRequest := shared.CreateCreateCompletionRequestPromptArrayOfstr(prompts)
-	request := shared.CreateCompletionRequest{
-		Model:            openai.modelName,
-		Prompt:           &promptRequest,
-		MaxTokens:        &maxTokens,
-		Temperature:      &openai.temperature,
-		TopP:             &openai.topP,
-		N:                &openai.n,
-		BestOf:           &openai.bestOf,
-		LogitBias:        openai.logitBias,
-		PresencePenalty:  &openai.presencePenalty,
-		FrequencyPenalty: &openai.frequencyPenalty,
-		Stop:             &stopRequest,
-	}
-
-	return openai.client.OpenAI.CreateCompletion(ctx, request)
-}
-
-func statusCodeIsRetryable(statusCode int) bool {
+func StatusCodeIsRetryable(statusCode int) bool {
 	return statusCode == 429 || statusCode == 500
 }
