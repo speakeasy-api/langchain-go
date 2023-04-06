@@ -8,6 +8,7 @@ import (
 	"github.com/speakeasy-sdks/openai-go-sdk/pkg/models/operations"
 	"github.com/speakeasy-sdks/openai-go-sdk/pkg/models/shared"
 	"math"
+	"net"
 	"net/http"
 	"os"
 	"time"
@@ -244,8 +245,18 @@ func (openai *OpenAI) completionWithRetry(ctx context.Context, prompts []string,
 	// max 10 seconds
 	for i := 0; i < openai.maxRetries; i++ {
 		lastTry := i == openai.maxRetries-1
+		sleep := int(math.Min(math.Pow(2, float64(i)), float64(10)))
 		res, err := openai.client.OpenAI.CreateCompletion(ctx, request)
 		if err != nil {
+			var netErr net.Error
+			if errors.As(err, &netErr) {
+				// retry on client timeout
+				if netErr.Timeout() && !lastTry {
+					time.Sleep(time.Duration(sleep) * time.Second)
+					continue
+				}
+			}
+
 			return nil, err
 		}
 
@@ -260,7 +271,6 @@ func (openai *OpenAI) completionWithRetry(ctx context.Context, prompts []string,
 			}
 		}
 
-		sleep := int(math.Min(math.Pow(2, float64(i)), float64(10)))
 		time.Sleep(time.Duration(sleep) * time.Second)
 	}
 
