@@ -53,8 +53,7 @@ type authorizeTransport struct {
 }
 
 func (t *authorizeTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	fmt.Println("Hitting Transport Override")
-	req.Header.Add("X-Authorization", fmt.Sprintf("Bearer %s", t.apiKey))
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", t.apiKey))
 	return http.DefaultTransport.RoundTrip(req)
 }
 
@@ -142,8 +141,7 @@ func New(args ...OpenAIInput) (*OpenAI, error) {
 		httpClient.Timeout = *openai.timeout
 	}
 
-	client := gpt.New()
-	gpt.WithClient(&httpClient)(client)
+	client := gpt.New(gpt.WithClient(&httpClient))
 	openai.client = client
 
 	return &openai, nil
