@@ -134,7 +134,7 @@ func (openai *OpenAIChat) Call(ctx context.Context, prompt string, stop []string
 		stop = openai.stop
 	}
 
-	data, err := openai.completionWithRetry(ctx, prompt, openai.maxTokens, stop)
+	data, err := openai.chatCompletionWithRetry(ctx, prompt, openai.maxTokens, stop)
 	if err != nil {
 		return "", err
 	}
@@ -152,7 +152,7 @@ func (openai *OpenAIChat) Generate(ctx context.Context, prompts []string, stop [
 	return nil, nil
 }
 
-func (openai *OpenAIChat) completionWithRetry(ctx context.Context, prompt string, maxTokens int64, stop []string) (*shared.CreateChatCompletionResponse, error) {
+func (openai *OpenAIChat) chatCompletionWithRetry(ctx context.Context, prompt string, maxTokens int64, stop []string) (*shared.CreateChatCompletionResponse, error) {
 	request := shared.CreateChatCompletionRequest{
 		Model:            openai.modelName,
 		Messages:         formatMessages(openai.prefixMessages, prompt),
