@@ -1,2 +1,2 @@
 # langchain-go
-Go bindings inspired by [langchain](https://github.com/hwchase17/langchain) and [langchainjs](https://github.com/hwchase17/langchainjs)
+Go bindings inspired by [langchainjs](https://github.com/hwchase17/langchainjs)
