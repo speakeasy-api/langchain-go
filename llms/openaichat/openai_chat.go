@@ -1,4 +1,4 @@
-package openai
+package openaichat
 
 import (
 	"context"
@@ -10,7 +10,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/speakeasy-api/langchain-go/llms"
@@ -18,63 +17,57 @@ import (
 
 // Default Params for Open AI model
 const (
-	temperature      float64 = 0.7
-	maxTokens        int64   = 256
+	temperature      float64 = 1
 	topP             float64 = 1
 	frequencyPenalty float64 = 0
 	presencePenalty  float64 = 0
 	n                int64   = 1
-	bestOf           int64   = 1
-	modelName        string  = "text-davinci-003"
-	batchSize        int64   = 20
+	modelName        string  = "gpt-3.5-turbo"
 	maxRetries       int     = 3
 )
 
-type OpenAI struct {
+type OpenAIChat struct {
 	temperature      float64
 	maxTokens        int64
 	topP             float64
 	frequencyPenalty float64
 	presencePenalty  float64
 	n                int64
-	bestOf           int64
 	logitBias        map[string]interface{}
 	streaming        bool // Streaming Unsupported Right Now
 	modelName        string
 	modelKwargs      map[string]interface{}
 	maxRetries       int
-	batchSize        int64
 	stop             []string
+	prefixMessages   []ChatMessage
 	timeout          *time.Duration
 	client           *gpt.Gpt
 }
 
-func New(args ...OpenAIInput) (*OpenAI, error) {
+func New(args ...OpenAIChatInput) (*OpenAIChat, error) {
 	if len(args) > 1 {
 		return nil, errors.New("more than one config argument not supported")
 	}
 
-	input := OpenAIInput{}
+	input := OpenAIChatInput{}
 	if len(args) > 0 {
 		input = args[0]
 	}
 
-	openai := OpenAI{
+	openai := OpenAIChat{
 		temperature:      temperature,
-		maxTokens:        maxTokens,
 		topP:             topP,
 		frequencyPenalty: frequencyPenalty,
 		presencePenalty:  presencePenalty,
 		n:                n,
-		bestOf:           bestOf,
 		logitBias:        input.LogitBias,
 		streaming:        input.Streaming,
 		modelName:        modelName,
 		modelKwargs:      input.ModelKwargs,
-		batchSize:        batchSize,
 		stop:             input.Stop,
 		timeout:          input.Timeout,
 		maxRetries:       maxRetries,
+		prefixMessages:   input.PrefixMessages,
 	}
 
 	apiKey := os.Getenv("OPENAI_API_KEY")
@@ -85,14 +78,6 @@ func New(args ...OpenAIInput) (*OpenAI, error) {
 
 	if apiKey == "" {
 		return nil, errors.New("OpenAI API key not found")
-	}
-
-	if input.ModelName != nil {
-		openai.modelName = *input.ModelName
-	}
-
-	if strings.HasPrefix(openai.modelName, "gpt-3.5-turbo") || strings.HasPrefix(openai.modelName, "gpt-4") {
-		return nil, errors.New("use OpenAIChat for these models")
 	}
 
 	if input.Temperature != nil {
@@ -119,12 +104,8 @@ func New(args ...OpenAIInput) (*OpenAI, error) {
 		openai.n = *input.N
 	}
 
-	if input.BestOf != nil {
-		openai.bestOf = *input.BestOf
-	}
-
-	if input.BatchSize != nil {
-		openai.batchSize = *input.BatchSize
+	if input.ModelName != nil {
+		openai.modelName = *input.ModelName
 	}
 
 	if input.MaxRetries != nil {
@@ -143,96 +124,54 @@ func New(args ...OpenAIInput) (*OpenAI, error) {
 	return &openai, nil
 }
 
-func (openai *OpenAI) Name() string {
-	return "openai"
+func (openai *OpenAIChat) Name() string {
+	return "openai-chat"
 }
 
-func (openai *OpenAI) Call(ctx context.Context, prompt string, stop []string) (string, error) {
-	generations, err := openai.Generate(ctx, []string{prompt}, stop)
-	if err != nil {
-		return "", err
-	}
-
-	return generations.Generations[0][0].Text, nil
-}
-
-func (openai *OpenAI) Generate(ctx context.Context, prompts []string, stop []string) (*llms.LLMResult, error) {
-	subPrompts := llms.BatchSlice[string](prompts, openai.batchSize)
-	maxTokens := openai.maxTokens
-	var completionTokens, promptTokens, totalTokens int64
-	var choices []shared.CreateCompletionResponseChoices
-
-	if openai.maxTokens == -1 {
-		if len(prompts) != 1 {
-			return nil, errors.New("max_tokens set to -1 not supported for multiple inputs")
-		}
-
-		maxTokens = llms.CalculateMaxTokens(prompts[0], openai.modelName)
-	}
-
+func (openai *OpenAIChat) Call(ctx context.Context, prompt string, stop []string) (string, error) {
 	if len(stop) == 0 {
 		stop = openai.stop
 	}
 
-	for _, prompts := range subPrompts {
-		data, err := openai.completionWithRetry(ctx, prompts, maxTokens, stop)
-		if err != nil {
-			return nil, err
-		}
-
-		choices = append(choices, data.Choices...)
-		if data.Usage != nil {
-			completionTokens += data.Usage.CompletionTokens
-			promptTokens += data.Usage.PromptTokens
-			totalTokens += data.Usage.TotalTokens
-		}
-	}
-	var generations [][]llms.Generation
-	batchedChoices := llms.BatchSlice[shared.CreateCompletionResponseChoices](choices, openai.n)
-	for _, batch := range batchedChoices {
-		var generationBatch []llms.Generation
-		for _, choice := range batch {
-			generationBatch = append(generationBatch, llms.Generation{
-				Text: *choice.Text,
-				GenerationInfo: map[string]interface{}{
-					"finishReason": choice.FinishReason,
-					"logprobs":     choice.Logprobs,
-				},
-			})
-		}
-		generations = append(generations, generationBatch)
+	data, err := openai.chatCompletionWithRetry(ctx, prompt, openai.maxTokens, stop)
+	if err != nil {
+		return "", err
 	}
 
-	return &llms.LLMResult{
-		Generations: generations,
-		LLMOutput: map[string]interface{}{
-			"completionTokens": completionTokens,
-			"promptTokens":     promptTokens,
-			"totalTokens":      totalTokens,
-		},
-	}, nil
+	message := ""
+	if len(data.Choices) > 0 && data.Choices[0].Message != nil {
+		message = data.Choices[0].Message.Content
+	}
+
+	return message, nil
 }
 
-func (openai *OpenAI) completionWithRetry(ctx context.Context, prompts []string, maxTokens int64, stop []string) (*shared.CreateCompletionResponse, error) {
-	promptRequest := shared.CreateCreateCompletionRequestPromptArrayOfstr(prompts)
-	request := shared.CreateCompletionRequest{
+func (openai *OpenAIChat) Generate(ctx context.Context, prompts []string, stop []string) (*llms.LLMResult, error) {
+	// Not Implemented for OpenAIChat
+	return nil, nil
+}
+
+func (openai *OpenAIChat) chatCompletionWithRetry(ctx context.Context, prompt string, maxTokens int64, stop []string) (*shared.CreateChatCompletionResponse, error) {
+	request := shared.CreateChatCompletionRequest{
 		Model:            openai.modelName,
-		Prompt:           &promptRequest,
-		MaxTokens:        &maxTokens,
+		Messages:         formatMessages(openai.prefixMessages, prompt),
 		Temperature:      &openai.temperature,
 		TopP:             &openai.topP,
 		N:                &openai.n,
-		BestOf:           &openai.bestOf,
 		LogitBias:        openai.logitBias,
 		PresencePenalty:  &openai.presencePenalty,
 		FrequencyPenalty: &openai.frequencyPenalty,
 	}
+	if openai.maxTokens != 0 {
+		request.MaxTokens = &openai.maxTokens
+	}
+
 	if len(stop) != 0 {
-		stopRequest := shared.CreateCreateCompletionRequestStopArrayOfstr(stop)
+		stopRequest := shared.CreateCreateChatCompletionRequestStopArrayOfstr(stop)
 		request.Stop = &stopRequest
 	}
 
-	var finalResult *shared.CreateCompletionResponse
+	var finalResult *shared.CreateChatCompletionResponse
 	var finalErr error
 
 	// wait 2^x second between each retry starting with
@@ -240,7 +179,7 @@ func (openai *OpenAI) completionWithRetry(ctx context.Context, prompts []string,
 	for i := 0; i < openai.maxRetries; i++ {
 		lastTry := i == openai.maxRetries-1
 		sleep := int(math.Min(math.Pow(2, float64(i)), float64(10)))
-		res, err := openai.client.OpenAI.CreateCompletion(ctx, request)
+		res, err := openai.client.OpenAI.CreateChatCompletion(ctx, request)
 		if err != nil {
 			var netErr net.Error
 			if errors.As(err, &netErr) {
@@ -255,7 +194,7 @@ func (openai *OpenAI) completionWithRetry(ctx context.Context, prompts []string,
 		}
 
 		if res.StatusCode == http.StatusOK {
-			finalResult = res.CreateCompletionResponse
+			finalResult = res.CreateChatCompletionResponse
 			break
 		} else {
 			openAIError := openaishared.CreateOpenAIError(res.StatusCode, res.RawResponse.Status)
@@ -269,4 +208,32 @@ func (openai *OpenAI) completionWithRetry(ctx context.Context, prompts []string,
 	}
 
 	return finalResult, finalErr
+}
+
+func formatMessages(previous []ChatMessage, message string) []shared.ChatCompletionRequestMessage {
+	var result []shared.ChatCompletionRequestMessage
+	for _, message := range previous {
+		result = append(result, shared.ChatCompletionRequestMessage{
+			Content: message.Content,
+			Role:    convertRoleEnum(message.Role),
+		})
+	}
+	result = append(result, shared.ChatCompletionRequestMessage{
+		Content: message,
+		Role:    shared.ChatCompletionRequestMessageRoleEnumUser,
+	})
+	return result
+}
+
+func convertRoleEnum(enum ChatMessageRoleEnum) shared.ChatCompletionRequestMessageRoleEnum {
+	switch enum {
+	case ChatMessageRoleEnumSystem:
+		return shared.ChatCompletionRequestMessageRoleEnumSystem
+	case ChatMessageRoleEnumUser:
+		return shared.ChatCompletionRequestMessageRoleEnumUser
+	case ChatMessageRoleEnumAssistant:
+		return shared.ChatCompletionRequestMessageRoleEnumAssistant
+	default:
+		return ""
+	}
 }

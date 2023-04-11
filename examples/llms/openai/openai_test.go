@@ -5,7 +5,6 @@ import (
 	"fmt"
 	openai "github.com/speakeasy-api/langchain-go/llms/openai"
 	"log"
-	"net"
 	"testing"
 )
 
@@ -18,9 +17,7 @@ func TestBasicCompletion(t *testing.T) {
 	}
 	completion, err := llm.Call(context.Background(), "Question, what kind of bear is best?", []string{})
 	if err != nil {
-		if err, ok := err.(net.Error); ok && err.Timeout() {
-			log.Fatal(err)
-		}
+		log.Fatal(err)
 	}
 
 	fmt.Println(completion)
