@@ -3,7 +3,7 @@ package openai
 import (
 	"context"
 	"errors"
-	"fmt"
+	"github.com/speakeasy-api/langchain-go/llms/internal/openaishared"
 	gpt "github.com/speakeasy-sdks/openai-go-sdk"
 	"github.com/speakeasy-sdks/openai-go-sdk/pkg/models/shared"
 	"math"
@@ -47,15 +47,6 @@ type OpenAI struct {
 	stop             []string
 	timeout          *time.Duration
 	client           *gpt.Gpt
-}
-
-type AuthorizeTransport struct {
-	ApiKey string
-}
-
-func (t *AuthorizeTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", t.ApiKey))
-	return http.DefaultTransport.RoundTrip(req)
 }
 
 func New(args ...OpenAIInput) (*OpenAI, error) {
@@ -140,7 +131,7 @@ func New(args ...OpenAIInput) (*OpenAI, error) {
 		openai.maxRetries = *input.MaxRetries
 	}
 
-	httpClient := http.Client{Transport: &AuthorizeTransport{ApiKey: apiKey}}
+	httpClient := openaishared.OpenAIAuthenticatedClient(apiKey)
 
 	if openai.timeout != nil {
 		httpClient.Timeout = *openai.timeout
@@ -186,7 +177,6 @@ func (openai *OpenAI) Generate(ctx context.Context, prompts []string, stop []str
 	for _, prompts := range subPrompts {
 		data, err := openai.completionWithRetry(ctx, prompts, maxTokens, stop)
 		if err != nil {
-			// TODO: Wrap Into Informative Errors
 			return nil, err
 		}
 
@@ -268,9 +258,9 @@ func (openai *OpenAI) completionWithRetry(ctx context.Context, prompts []string,
 			finalResult = res.CreateCompletionResponse
 			break
 		} else {
-			if lastTry || !StatusCodeIsRetryable(res.StatusCode) {
-				// TODO: Improve Error Parsing
-				finalErr = errors.New(fmt.Sprintf("error in call to openai with status %s", res.RawResponse.Status))
+			openAIError := openaishared.CreateOpenAIError(res.StatusCode, res.RawResponse.Status)
+			if lastTry || !openAIError.IsRetryable() {
+				finalErr = openAIError
 				break
 			}
 		}
@@ -279,8 +269,4 @@ func (openai *OpenAI) completionWithRetry(ctx context.Context, prompts []string,
 	}
 
 	return finalResult, finalErr
-}
-
-func StatusCodeIsRetryable(statusCode int) bool {
-	return statusCode == 429 || statusCode == 500
 }
