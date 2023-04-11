@@ -3,7 +3,9 @@ package openai
 import (
 	"context"
 	"errors"
-	"github.com/speakeasy-api/langchain-go/llms/internal/openaishared"
+	llms_shared "github.com/speakeasy-api/langchain-go/llms/shared"
+
+	openai_shared "github.com/speakeasy-api/langchain-go/llms/shared/openai"
 	gpt "github.com/speakeasy-sdks/openai-go-sdk"
 	"github.com/speakeasy-sdks/openai-go-sdk/pkg/models/shared"
 	"math"
@@ -131,7 +133,7 @@ func New(args ...OpenAIInput) (*OpenAI, error) {
 		openai.maxRetries = *input.MaxRetries
 	}
 
-	httpClient := openaishared.OpenAIAuthenticatedClient(apiKey)
+	httpClient := openai_shared.OpenAIAuthenticatedClient(apiKey)
 
 	if openai.timeout != nil {
 		httpClient.Timeout = *openai.timeout
@@ -157,7 +159,7 @@ func (openai *OpenAI) Call(ctx context.Context, prompt string, stop []string) (s
 }
 
 func (openai *OpenAI) Generate(ctx context.Context, prompts []string, stop []string) (*llms.LLMResult, error) {
-	subPrompts := llms.BatchSlice[string](prompts, openai.batchSize)
+	subPrompts := llms_shared.BatchSlice[string](prompts, openai.batchSize)
 	maxTokens := openai.maxTokens
 	var completionTokens, promptTokens, totalTokens int64
 	var choices []shared.CreateCompletionResponseChoices
@@ -167,7 +169,7 @@ func (openai *OpenAI) Generate(ctx context.Context, prompts []string, stop []str
 			return nil, errors.New("max_tokens set to -1 not supported for multiple inputs")
 		}
 
-		maxTokens = llms.CalculateMaxTokens(prompts[0], openai.modelName)
+		maxTokens = llms_shared.CalculateMaxTokens(prompts[0], openai.modelName)
 	}
 
 	if len(stop) == 0 {
@@ -188,7 +190,7 @@ func (openai *OpenAI) Generate(ctx context.Context, prompts []string, stop []str
 		}
 	}
 	var generations [][]llms.Generation
-	batchedChoices := llms.BatchSlice[shared.CreateCompletionResponseChoices](choices, openai.n)
+	batchedChoices := llms_shared.BatchSlice[shared.CreateCompletionResponseChoices](choices, openai.n)
 	for _, batch := range batchedChoices {
 		var generationBatch []llms.Generation
 		for _, choice := range batch {
@@ -258,7 +260,7 @@ func (openai *OpenAI) completionWithRetry(ctx context.Context, prompts []string,
 			finalResult = res.CreateCompletionResponse
 			break
 		} else {
-			openAIError := openaishared.CreateOpenAIError(res.StatusCode, res.RawResponse.Status)
+			openAIError := openai_shared.CreateOpenAIError(res.StatusCode, res.RawResponse.Status)
 			if lastTry || !openAIError.IsRetryable() {
 				finalErr = openAIError
 				break

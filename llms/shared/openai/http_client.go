@@ -1,4 +1,4 @@
-package openaishared
+package openai
 
 import (
 	"fmt"

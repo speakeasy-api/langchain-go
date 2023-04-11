@@ -1,4 +1,4 @@
-package llms
+package shared
 
 func BatchSlice[T any](slice []T, batchSize int64) [][]T {
 	var chunks [][]T

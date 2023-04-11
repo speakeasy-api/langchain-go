@@ -3,7 +3,7 @@ package openaichat
 import (
 	"context"
 	"errors"
-	"github.com/speakeasy-api/langchain-go/llms/internal/openaishared"
+	openai_shared "github.com/speakeasy-api/langchain-go/llms/shared/openai"
 	gpt "github.com/speakeasy-sdks/openai-go-sdk"
 	"github.com/speakeasy-sdks/openai-go-sdk/pkg/models/shared"
 	"math"
@@ -112,7 +112,7 @@ func New(args ...OpenAIChatInput) (*OpenAIChat, error) {
 		openai.maxRetries = *input.MaxRetries
 	}
 
-	httpClient := openaishared.OpenAIAuthenticatedClient(apiKey)
+	httpClient := openai_shared.OpenAIAuthenticatedClient(apiKey)
 
 	if openai.timeout != nil {
 		httpClient.Timeout = *openai.timeout
@@ -197,7 +197,7 @@ func (openai *OpenAIChat) chatCompletionWithRetry(ctx context.Context, prompt st
 			finalResult = res.CreateChatCompletionResponse
 			break
 		} else {
-			openAIError := openaishared.CreateOpenAIError(res.StatusCode, res.RawResponse.Status)
+			openAIError := openai_shared.CreateOpenAIError(res.StatusCode, res.RawResponse.Status)
 			if lastTry || !openAIError.IsRetryable() {
 				finalErr = openAIError
 				break
